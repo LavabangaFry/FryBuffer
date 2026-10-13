@@ -1,0 +1,12 @@
+# Скрипты пишутся в Windows, но в репозитории держим LF: смешанные
+# окончания строк дают шумные диффы на ровном месте.
+* text=auto eol=lf
+*.ps1 text eol=lf
+*.md  text eol=lf
+*.json text eol=lf
+# VBScript — только Windows, ему родные CRLF
+*.vbs text eol=crlf
+*.png binary
+*.exe binary
+*.ico binary
+*.cs  text eol=lf

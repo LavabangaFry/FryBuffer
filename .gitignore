@@ -1,0 +1,16 @@
+# Локальные заметки об окружении — только на машине, не в репозитории
+CLAUDE.md
+
+# Настоящий конфиг не в репозитории: в нём личные тексты кнопок.
+# В git едет только config.example.json.
+config.json
+config.json.bak
+config.json.tmp
+config.broken-*.json
+
+*.log
+
+# Собирается tools/build-exe.ps1 после git pull: 5 МБ на каждое
+# изменение раздули бы историю
+FryBuffer.exe
+launcher/FryBuffer.ico

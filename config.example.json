@@ -1,0 +1,106 @@
+{
+    "theme":  "auto",
+    "accent":  "blue",
+    "size":  "M",
+    "edge":  "bottom",
+    "offset":  0.5,
+    "screen":  "",
+    "glass":  "acrylic",
+    "tint":  0.6,
+    "magnify":  true,
+    "hideDelay":  450,
+    "fanDelay":  400,
+    "mode":  "auto",
+    "hotkey":  "Win+Alt+V",
+    "recentEmoji":  [
+
+                    ],
+    "items":  [
+                  {
+                      "name":  "Основной сервер",
+                      "text":  "192.168.0.10",
+                      "icon":  "🖥️",
+                      "color":  "#3FB950",
+                      "counter":  0,
+                      "children":  [
+                                       {
+                                           "name":  "Резервный сервер",
+                                           "text":  "192.168.0.11",
+                                           "icon":  "🗄️",
+                                           "color":  "#3FB950",
+                                           "counter":  0
+                                       },
+                                       {
+                                           "name":  "Тестовый стенд",
+                                           "text":  "192.168.0.12",
+                                           "icon":  "🧪",
+                                           "color":  "#D29922",
+                                           "counter":  0
+                                       },
+                                       {
+                                           "name":  "База данных",
+                                           "text":  "192.168.0.20",
+                                           "icon":  "💾",
+                                           "color":  "#58A6FF",
+                                           "counter":  0
+                                       },
+                                       {
+                                           "name":  "Шлюз",
+                                           "text":  "192.168.0.1",
+                                           "icon":  "🚪",
+                                           "color":  "",
+                                           "counter":  0
+                                       }
+                                   ]
+                  },
+                  {
+                      "name":  "Ссылка на портал",
+                      "text":  "https://portal.lalala.com",
+                      "icon":  "🔗",
+                      "color":  "#58A6FF",
+                      "counter":  0
+                  },
+                  {
+                      "name":  "Почта",
+                      "text":  "FryFryFry@lalala.com",
+                      "icon":  "📧",
+                      "color":  "",
+                      "counter":  0
+                  },
+                  {
+                      "name":  "Ответ на заявку",
+                      "text":  "Добрый день!\r\nЗаявка {?Номер заявки} принята в работу {date} в {time}.\r\nС уважением, {user}",
+                      "icon":  "💬",
+                      "color":  "#BC8CFF",
+                      "counter":  0
+                  },
+                  {
+                      "name":  "Номер записи",
+                      "text":  "INC-{n:0000}",
+                      "icon":  "🔢",
+                      "color":  "#D29922",
+                      "counter":  0
+                  },
+                  {
+                      "name":  "Мой компьютер",
+                      "text":  "{computer} ({ip})",
+                      "icon":  "💻",
+                      "color":  "",
+                      "counter":  0
+                  },
+                  {
+                      "name":  "Временный пароль",
+                      "text":  "{rand:12}",
+                      "icon":  "🎲",
+                      "color":  "#F778BA",
+                      "counter":  0
+                  },
+                  {
+                      "name":  "Цитата из буфера",
+                      "text":  "\u003e {clipboard}",
+                      "icon":  "📌",
+                      "color":  "#F0883E",
+                      "counter":  0
+                  }
+              ]
+}
