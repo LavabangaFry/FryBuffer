@@ -50,7 +50,7 @@ function Snap([string]$Name, [scriptblock]$Body) {
     try { & $Body } catch { Write-ErrLog $_ $Name }
 }
 
-Snap 'prompt' { [void](Show-PromptDialog @('Номер заявки', 'Клиент') 'Ответ на заявку' (New-Object Windows.Rect 700, 1100, 30, 30) 'bottom') }
+Snap 'prompt' { [void](Show-PromptDialog @('Номер заявки', 'Клиент') 'Совиный ответ' (New-Object Windows.Rect 700, 1100, 30, 30) 'bottom') }
 
 Snap 'menu' { Show-ItemMenu 3 }
 $menu = $script:LastSnapWin

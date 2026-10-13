@@ -154,7 +154,17 @@ function ConvertFrom-Hotkey {
 
 # --- Конфиг ------------------------------------------------------------------
 
-$script:LabelColors = @('', '#58A6FF', '#3FB950', '#D29922', '#F0883E', '#F85149', '#BC8CFF', '#F778BA', '#8B949E')
+# Цвета обводки: «без цвета», радужная и шестнадцать оттенков по кругу
+$script:LabelColors = @('', 'rainbow',
+    '#F85149', '#FF7B72', '#F0883E', '#E3B341', '#D29922', '#A5D63F',
+    '#3FB950', '#3DDC97', '#39C5CF', '#79C0FF', '#58A6FF', '#6E7BFF',
+    '#BC8CFF', '#D2A8FF', '#F778BA', '#8B949E')
+# Стили обводки: сплошная, точками, тире, двойная
+$script:RingStyles = @('solid', 'dotted', 'dashed', 'double')
+
+function Test-LabelColor([string]$Color) {
+    return (-not $Color) -or $Color -eq 'rainbow' -or $Color -match '^#[0-9A-Fa-f]{6}$'
+}
 $script:Accents     = @('blue', 'green', 'purple', 'orange', 'pink')
 
 function New-ClipItem {
@@ -163,8 +173,9 @@ function New-ClipItem {
         веером, если задержать мышь на кружке. Уровень вложенности один:
         у вложенной кнопки своих вложенных нет.
     #>
-    param([string]$Name = '', [string]$Text = '', [string]$Icon = '', [string]$Color = '', [int]$Counter = 0)
-    return [ordered]@{ name = $Name; text = $Text; icon = $Icon; color = $Color; counter = $Counter; children = (New-Object System.Collections.ArrayList) }
+    param([string]$Name = '', [string]$Text = '', [string]$Icon = '', [string]$Color = '', [int]$Counter = 0, [string]$Ring = 'solid')
+    if ($script:RingStyles -notcontains $Ring) { $Ring = 'solid' }
+    return [ordered]@{ name = $Name; text = $Text; icon = $Icon; color = $Color; ring = $Ring; counter = $Counter; children = (New-Object System.Collections.ArrayList) }
 }
 
 function Copy-ClipItemDeep {
@@ -172,7 +183,7 @@ function Copy-ClipItemDeep {
     param($It, [switch]$KeepCounter)
     $cnt = 0
     if ($KeepCounter) { $cnt = [int]$It.counter }
-    $c = New-ClipItem -Name ([string]$It.name) -Text ([string]$It.text) -Icon ([string]$It.icon) -Color ([string]$It.color) -Counter $cnt
+    $c = New-ClipItem -Name ([string]$It.name) -Text ([string]$It.text) -Icon ([string]$It.icon) -Color ([string]$It.color) -Counter $cnt -Ring ([string]$It.ring)
     foreach ($ch in @($It.children)) {
         if ($null -ne $ch) { [void]$c.children.Add((Copy-ClipItemDeep $ch -KeepCounter:$KeepCounter)) }
     }
@@ -182,11 +193,11 @@ function Copy-ClipItemDeep {
 function ConvertTo-ClipItem {
     param($Raw, [bool]$WithChildren = $true)
     $color = [string](Get-Prop $Raw 'color')
-    if ($color -and $color -notmatch '^#[0-9A-Fa-f]{6}$') { $color = '' }
+    if (-not (Test-LabelColor $color)) { $color = '' }
     $cnt = 0
     [void][int]::TryParse([string](Get-Prop $Raw 'counter'), [ref]$cnt)
     $it = New-ClipItem -Name ([string](Get-Prop $Raw 'name')) -Text ([string](Get-Prop $Raw 'text')) `
-        -Icon ([string](Get-Prop $Raw 'icon')) -Color $color -Counter $cnt
+        -Icon ([string](Get-Prop $Raw 'icon')) -Color $color -Counter $cnt -Ring ([string](Get-Prop $Raw 'ring'))
     if ($WithChildren) {
         foreach ($ch in @(Get-Prop $Raw 'children')) {
             # Глубже одного уровня не идём: веер из веера у края экрана
@@ -200,6 +211,8 @@ function ConvertTo-ClipItem {
 function ConvertTo-ItemJson {
     param($It)
     $o = [ordered]@{ name = $It.name; text = $It.text; icon = $It.icon; color = $It.color; counter = [int]$It.counter }
+    # Сплошная обводка — по умолчанию, в конфиг её не пишем, чтобы не шуметь
+    if ($It.ring -and $It.ring -ne 'solid') { $o.ring = $It.ring }
     if ($It.children -and $It.children.Count -gt 0) {
         $o.children = @(foreach ($ch in $It.children) { ConvertTo-ItemJson $ch })
     }

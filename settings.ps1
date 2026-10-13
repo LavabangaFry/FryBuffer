@@ -60,7 +60,7 @@ $script:SettingsBody = @'
           <Grid x:Name="EPreview" Width="46" Height="46" Margin="0,0,14,0" VerticalAlignment="Bottom"/>
           <StackPanel Grid.Column="1">
             <TextBlock Style="{StaticResource Lbl}" Text="Название — видно в подсказке над кружком" Margin="0,0,0,6"/>
-            <TextBox x:Name="EName" Tag="Например: IP сервера"/>
+            <TextBox x:Name="EName" Tag="Например: Единорог-сервер"/>
           </StackPanel>
         </Grid>
         <TextBlock Style="{StaticResource Lbl}" Text="Текст, который копируется"/>
@@ -74,15 +74,17 @@ $script:SettingsBody = @'
         </Border>
         <TextBlock Style="{StaticResource Lbl}" Text="Цвет обводки и точки у края"/>
         <WrapPanel x:Name="EColors"/>
+        <TextBlock Style="{StaticResource Lbl}" Text="Стиль обводки"/>
+        <WrapPanel x:Name="ERings"/>
         <TextBlock Style="{StaticResource Lbl}" Text="Эмодзи"/>
         <ContentControl x:Name="EPicker" HorizontalAlignment="Left"/>
       </StackPanel>
     </ScrollViewer>
     <StackPanel x:Name="EEmpty" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed">
       <ContentControl x:Name="EEmptyIcon" HorizontalAlignment="Center"/>
-      <TextBlock Style="{StaticResource H}" HorizontalAlignment="Center" Margin="0,12,0,4" Text="Заведите первую кнопку"/>
+      <TextBlock Style="{StaticResource H}" HorizontalAlignment="Center" Margin="0,12,0,4" Text="Заведите первого светлячка"/>
       <TextBlock Style="{StaticResource Hint}" HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="320"
-                 Text="Кнопка — это эмодзи у края экрана и текст, который ляжет в буфер обмена по клику."/>
+                 Text="Кнопка — это светлячок у края экрана: эмодзи в кружке и текст, который по клику ляжет в буфер обмена."/>
       <Button x:Name="BNew2" Style="{StaticResource Primary}" Content="+ Новая кнопка" HorizontalAlignment="Center" Margin="0,14,0,0"/>
     </StackPanel>
   </Grid>
@@ -166,7 +168,7 @@ $script:Tokens = @(
 
 function Copy-ClipItem($It) {
     <# Рабочая копия для окна настроек; _src — ссылка на живую кнопку, чтобы при сохранении не потерять счётчик. #>
-    $c = New-ClipItem -Name ([string]$It.name) -Text ([string]$It.text) -Icon ([string]$It.icon) -Color ([string]$It.color) -Counter ([int]$It.counter)
+    $c = New-ClipItem -Name ([string]$It.name) -Text ([string]$It.text) -Icon ([string]$It.icon) -Color ([string]$It.color) -Counter ([int]$It.counter) -Ring ([string]$It.ring)
     $c['_src'] = $It
     foreach ($ch in @($It.children)) { if ($null -ne $ch) { [void]$c.children.Add((Copy-ClipItem $ch)) } }
     return $c
@@ -202,7 +204,7 @@ function Open-Settings {
         $script:SettingsWin = $w
 
         $names = 'STitle', 'SVersion', 'SClose', 'TabItems', 'TabLook', 'SLogo', 'PageItems', 'PageLook', 'LItems', 'BNew', 'BNew2', 'BChild', 'BDup', 'BUp', 'BDown', 'BNest', 'BDel',
-                 'EScroll', 'Editor', 'EEmpty', 'EEmptyIcon', 'EPreview', 'EName', 'EText', 'ETokens', 'EResult', 'EColors', 'EPicker',
+                 'EScroll', 'Editor', 'EEmpty', 'EEmptyIcon', 'EPreview', 'EName', 'EText', 'ETokens', 'EResult', 'EColors', 'ERings', 'EPicker',
                  'RTheme', 'RAccent', 'RSize', 'CMagnify', 'REdge', 'SOffset', 'RMode', 'SDelay', 'VDelay', 'SFan', 'VFan',
                  'CAutostart', 'VAutostart', 'SHotkey', 'BHotkey', 'VHotkey', 'BCfg', 'BDir', 'SCancel', 'SSave', 'SStatus'
         $S = @{ Win = $w; Loading = $false; Dirty = $false; CloseArmed = $false; DelArmed = $false; Sel = -1; Ip = $null; Rows = @() }
@@ -216,7 +218,7 @@ function Open-Settings {
 
         $S.SLogo.Content = New-EmojiVisual (New-EmojiFromKey '1f4cb') 20
         $S.SVersion.Text = $script:Version
-        $S.EEmptyIcon.Content = New-EmojiVisual (New-EmojiFromKey '1f4cc') 40
+        $S.EEmptyIcon.Content = New-EmojiVisual (New-EmojiFromKey '1f984') 40
 
         Initialize-SettingsItems
         Initialize-SettingsLook
@@ -277,9 +279,8 @@ function New-MiniCircle {
     $g.Width = $D; $g.Height = $D
     $el = New-Object Windows.Shapes.Ellipse
     $el.Fill = New-Brush $script:Pal.Btn
-    $el.StrokeThickness = 1.5
-    $el.Stroke = Get-RingBrush ([string]$It.color)
     [void]$g.Children.Add($el)
+    foreach ($sh_ in (New-RingShapes ([string]$It.color) ([string]$It.ring) $D).Shapes) { [void]$g.Children.Add($sh_) }
     $v = New-EmojiVisual ([string]$It.icon) $Emo ([string]$It.name)
     $v.HorizontalAlignment = 'Center'; $v.VerticalAlignment = 'Center'
     [void]$g.Children.Add($v)
@@ -406,11 +407,14 @@ function Initialize-SettingsItems {
         [void]$S.ETokens.Children.Add($b)
     }
 
+    foreach ($st in $script:RingNames.Keys) {
+        $rb = New-RingChip $S.Win $st '' 'ering'
+        $rb.Tag = $st
+        $rb.Add_Checked({ param($s, $e) try { Update-FromEditor 'ring' ([string]$s.Tag) } catch { Write-ErrLog $_ 'стиль обводки' } })
+        [void]$S.ERings.Children.Add($rb)
+    }
     foreach ($hex in $script:LabelColors) {
-        $rb = New-Object Windows.Controls.RadioButton
-        $rb.Style = $S.Win.FindResource('Dot')
-        $rb.GroupName = 'ecolor'
-        if ($hex) { $rb.Background = New-Brush $hex } else { $rb.Background = New-Brush $script:Pal.Btn; $rb.Content = '×'; $rb.ToolTip = 'Без цвета' }
+        $rb = New-ColorDot $S.Win $hex 'ecolor'
         $rb.Tag = $hex
         $rb.Add_Checked({ param($s, $e) try { Update-FromEditor 'color' ([string]$s.Tag) } catch { Write-ErrLog $_ 'цвет' } })
         [void]$S.EColors.Children.Add($rb)
@@ -475,7 +479,7 @@ function Edit-NewName {
 function Add-SettingsItem {
     $S = $script:SettingsState
     $S.TabItems.IsChecked = $true
-    $it = New-ClipItem -Name 'Новая кнопка' -Icon (New-EmojiFromKey '1f4cc')
+    $it = New-ClipItem -Name 'Новый светлячок' -Icon (New-EmojiFromKey '2728')
     [void]$S.Items.Add($it)
     Update-SettingsList
     Select-SettingsItem (Get-RowOf $it)
@@ -491,7 +495,7 @@ function Add-SettingsChild {
     $r = $S.Rows[$S.Sel]
     $parent = $r.Item
     if ($r.Level -gt 0) { $parent = $r.Parent }
-    $it = New-ClipItem -Name 'Вложенная' -Icon (New-EmojiFromKey '1f4ce')
+    $it = New-ClipItem -Name 'Новый зверёк' -Icon (New-EmojiFromKey '1f43e')
     [void]$parent.children.Add($it)
     Update-SettingsList
     Select-SettingsItem (Get-RowOf $it)
@@ -575,6 +579,9 @@ function Select-SettingsItem {
         $S.EName.Text = [string]$it.name
         $S.EText.Text = [string]$it.text
         foreach ($rb in $S.EColors.Children) { $rb.IsChecked = ([string]$rb.Tag -eq [string]$it.color) }
+        $ring = [string]$it.ring
+        if (-not $ring) { $ring = 'solid' }
+        foreach ($rb in $S.ERings.Children) { $rb.IsChecked = ([string]$rb.Tag -eq $ring) }
     } finally { $S.Loading = $false }
     Update-EditorPreview
 }
@@ -589,6 +596,7 @@ function Update-FromEditor {
         'text'  { $it.text = $S.EText.Text }
         'color' { $it.color = [string]$Value }
         'icon'  { $it.icon = [string]$Value }
+        'ring'  { $it.ring = [string]$Value }
     }
     Set-ListRow $S.LItems.Items[$S.Sel] $it $r.Level
     Update-EditorPreview
@@ -753,7 +761,7 @@ function ConvertFrom-WorkItem {
     param($W)
     $cnt = [int]$W.counter
     if ($W.Contains('_src') -and $W['_src']) { $cnt = [Math]::Max($cnt, [int]$W['_src'].counter) }
-    $n = New-ClipItem -Name ([string]$W.name) -Text ([string]$W.text) -Icon ([string]$W.icon) -Color ([string]$W.color) -Counter $cnt
+    $n = New-ClipItem -Name ([string]$W.name) -Text ([string]$W.text) -Icon ([string]$W.icon) -Color ([string]$W.color) -Counter $cnt -Ring ([string]$W.ring)
     foreach ($ch in $W.children) { [void]$n.children.Add((ConvertFrom-WorkItem $ch)) }
     $W['_src'] = $n
     $W.counter = $cnt

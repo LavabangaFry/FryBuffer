@@ -12,94 +12,95 @@
     "fanDelay":  400,
     "mode":  "auto",
     "hotkey":  "Win+Alt+V",
+    "lastVersion":  "",
     "recentEmoji":  [
 
                     ],
     "items":  [
                   {
-                      "name":  "Основной сервер",
+                      "name":  "Единорог-сервер",
                       "text":  "192.168.0.10",
-                      "icon":  "🖥️",
-                      "color":  "#3FB950",
+                      "icon":  "🦄",
+                      "color":  "rainbow",
                       "counter":  0,
+                      "ring":  "double",
                       "children":  [
                                        {
-                                           "name":  "Резервный сервер",
+                                           "name":  "Дракон-резерв",
                                            "text":  "192.168.0.11",
-                                           "icon":  "🗄️",
+                                           "icon":  "🐉",
                                            "color":  "#3FB950",
-                                           "counter":  0
+                                           "counter":  0,
+                                           "ring":  "dotted"
                                        },
                                        {
-                                           "name":  "Тестовый стенд",
+                                           "name":  "Лис-тестировщик",
                                            "text":  "192.168.0.12",
-                                           "icon":  "🧪",
-                                           "color":  "#D29922",
-                                           "counter":  0
+                                           "icon":  "🦊",
+                                           "color":  "#F0883E",
+                                           "counter":  0,
+                                           "ring":  "dashed"
                                        },
                                        {
-                                           "name":  "База данных",
+                                           "name":  "Осьминог-база",
                                            "text":  "192.168.0.20",
-                                           "icon":  "💾",
-                                           "color":  "#58A6FF",
-                                           "counter":  0
+                                           "icon":  "🐙",
+                                           "color":  "#BC8CFF",
+                                           "counter":  0,
+                                           "ring":  "double"
                                        },
                                        {
-                                           "name":  "Шлюз",
+                                           "name":  "Черепаха-шлюз",
                                            "text":  "192.168.0.1",
-                                           "icon":  "🚪",
-                                           "color":  "",
+                                           "icon":  "🐢",
+                                           "color":  "#58A6FF",
                                            "counter":  0
                                        }
                                    ]
                   },
                   {
-                      "name":  "Ссылка на портал",
+                      "name":  "Радужная ссылка",
                       "text":  "https://portal.lalala.com",
-                      "icon":  "🔗",
-                      "color":  "#58A6FF",
-                      "counter":  0
+                      "icon":  "🌈",
+                      "color":  "#F0883E",
+                      "counter":  0,
+                      "ring":  "dashed"
                   },
                   {
-                      "name":  "Почта",
+                      "name":  "Котопочта",
                       "text":  "FryFryFry@lalala.com",
-                      "icon":  "📧",
-                      "color":  "",
-                      "counter":  0
-                  },
-                  {
-                      "name":  "Ответ на заявку",
-                      "text":  "Добрый день!\r\nЗаявка {?Номер заявки} принята в работу {date} в {time}.\r\nС уважением, {user}",
-                      "icon":  "💬",
-                      "color":  "#BC8CFF",
-                      "counter":  0
-                  },
-                  {
-                      "name":  "Номер записи",
-                      "text":  "INC-{n:0000}",
-                      "icon":  "🔢",
+                      "icon":  "🐱",
                       "color":  "#D29922",
                       "counter":  0
                   },
                   {
-                      "name":  "Мой компьютер",
-                      "text":  "{computer} ({ip})",
-                      "icon":  "💻",
-                      "color":  "",
+                      "name":  "Совиный ответ",
+                      "text":  "Добрый день!\r\nЗаявка {?Номер заявки} принята в работу {date} в {time}.\r\nС уважением, {user}",
+                      "icon":  "🦉",
+                      "color":  "#3FB950",
                       "counter":  0
                   },
                   {
-                      "name":  "Временный пароль",
+                      "name":  "Пчелиный счётчик",
+                      "text":  "INC-{n:0000}",
+                      "icon":  "🐝",
+                      "color":  "#58A6FF",
+                      "counter":  0,
+                      "ring":  "dotted"
+                  },
+                  {
+                      "name":  "Динопароль",
                       "text":  "{rand:12}",
-                      "icon":  "🎲",
-                      "color":  "#F778BA",
-                      "counter":  0
+                      "icon":  "🦖",
+                      "color":  "#BC8CFF",
+                      "counter":  0,
+                      "ring":  "dashed"
                   },
                   {
-                      "name":  "Цитата из буфера",
+                      "name":  "Попугай-повторюшка",
                       "text":  "\u003e {clipboard}",
-                      "icon":  "📌",
-                      "color":  "#F0883E",
+                      "icon":  "🦜",
+                      "color":  "#F778BA",
                       "counter":  0
                   }
               ]

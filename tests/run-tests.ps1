@@ -371,6 +371,29 @@ Test-Case 'автозапуск под старым именем clipbuttons п�
     }
 }
 
+Test-Case 'стиль и радужный цвет обводки сохраняются' {
+    $p = Join-Path $tmpDir 'ring.json'
+    $c = Get-DefaultConfig
+    [void]$c.items.Add((New-ClipItem -Name 'Точки' -Color 'rainbow' -Ring 'dotted'))
+    [void]$c.items.Add((New-ClipItem -Name 'Обычная' -Color '#3FB950'))
+    $c.items[0].children.Add((New-ClipItem -Name 'Двойная' -Ring 'double')) | Out-Null
+    Write-ClipConfig $p $c
+    $r = Read-ClipConfig $p
+    Assert-Equal 'rainbow' $r.items[0].color 'радужный цвет'
+    Assert-Equal 'dotted' $r.items[0].ring 'стиль точками'
+    Assert-Equal 'solid' $r.items[1].ring 'по умолчанию сплошная'
+    Assert-Equal 'double' $r.items[0].children[0].ring 'стиль у вложенной'
+    Assert-True ([IO.File]::ReadAllText($p) -notmatch '"ring":\s*"solid"') 'сплошная в конфиг не пишется'
+    Assert-Equal 'dotted' (Copy-ClipItemDeep $r.items[0]).ring 'копия сохраняет стиль'
+}
+
+Test-Case 'неизвестный стиль и цвет обводки сбрасываются' {
+    $raw = '{"items":[{"name":"a","ring":"zigzag","color":"rainbowish"}]}' | ConvertFrom-Json
+    $c = ConvertTo-ClipConfig $raw
+    Assert-Equal 'solid' $c.items[0].ring 'стиль'
+    Assert-Equal '' $c.items[0].color 'цвет'
+}
+
 Test-Case 'файл с BOM от блокнота читается' {
     $p = Join-Path $tmpDir 'bom.json'
     [IO.File]::WriteAllText($p, '{"edge":"left","items":[{"name":"Блокнот","text":"t"}]}', (New-Object Text.UTF8Encoding($true)))

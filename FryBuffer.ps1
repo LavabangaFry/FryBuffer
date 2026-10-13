@@ -277,7 +277,7 @@ try {
             $s.Stop()
             try {
                 $wa = Get-DockWorkArea
-                if ($s.Tag) { $msg = "FryBuffer $($script:Version)" } else { $msg = "FryBuffer обновлён: $($script:Version)" }
+                if ($s.Tag) { $msg = "FryBuffer проснулся · $($script:Version)" } else { $msg = "FryBuffer обновлён · $($script:Version)" }
                 Show-Toast $msg ($wa.Left + $wa.Width / 2) ($wa.Bottom - 50)
             } catch { Write-ErrLog $_ 'уведомление о версии' }
         })

@@ -140,9 +140,64 @@ function Set-DockPosition {
     }
 }
 
-function Get-RingBrush([string]$Color) {
+function Get-LabelBrush([string]$Color, [string]$Fallback) {
+    <# Кисть метки: обычный цвет, радуга (градиент по диагонали) или запасной цвет. #>
+    if ($Color -eq 'rainbow') {
+        $g = New-Object Windows.Media.LinearGradientBrush
+        $g.StartPoint = New-Object Windows.Point 0, 0
+        $g.EndPoint = New-Object Windows.Point 1, 1
+        $stops = '#F85149', '#F0883E', '#E3B341', '#3FB950', '#39C5CF', '#58A6FF', '#BC8CFF'
+        for ($i = 0; $i -lt $stops.Count; $i++) {
+            $g.GradientStops.Add((New-Object Windows.Media.GradientStop (New-Color $stops[$i]), ($i / ($stops.Count - 1))))
+        }
+        $g.Freeze()
+        return $g
+    }
     if ($Color) { return (New-Brush $Color) }
-    return (New-Brush $script:Pal.LineStrong)
+    return (New-Brush $Fallback)
+}
+
+function Get-RingBrush([string]$Color) { Get-LabelBrush $Color $script:Pal.LineStrong }
+
+$script:RingNames = [ordered]@{ solid = 'Сплошная'; dotted = 'Точками'; dashed = 'Тире'; double = 'Двойная' }
+
+function New-RingShapes {
+    <#
+        Обводка кружка нужного стиля. Возвращает эллипсы: первый — основная
+        линия (её перекрашивает выделение в сетке), у двойной есть второй,
+        внутренний. Толщина в T — к ней возвращается выделение.
+    #>
+    param([string]$Color, [string]$Style, [double]$D)
+    $brush = Get-RingBrush $Color
+    $main = New-Object Windows.Shapes.Ellipse
+    $main.Stroke = $brush
+    $main.IsHitTestVisible = $false
+    $shapes = New-Object System.Collections.ArrayList
+    [void]$shapes.Add($main)
+    switch ($Style) {
+        'dotted' {
+            # Нулевой штрих с круглым концом — это точка; шаг в толщинах линии
+            $main.StrokeThickness = [Math]::Max(1.8, $D / 13)
+            $main.StrokeDashArray = New-Object Windows.Media.DoubleCollection (,[double[]](0, 2.1))
+            $main.StrokeDashCap = 'Round'
+        }
+        'dashed' {
+            $main.StrokeThickness = [Math]::Max(1.6, $D / 16)
+            $main.StrokeDashArray = New-Object Windows.Media.DoubleCollection (,[double[]](2.4, 1.5))
+            $main.StrokeDashCap = 'Flat'
+        }
+        'double' {
+            $main.StrokeThickness = 1.2
+            $inner = New-Object Windows.Shapes.Ellipse
+            $inner.Stroke = $brush
+            $inner.StrokeThickness = 1
+            $inner.Margin = New-Object Windows.Thickness ([Math]::Max(2.5, $D / 10))
+            $inner.IsHitTestVisible = $false
+            [void]$shapes.Add($inner)
+        }
+        default { $main.StrokeThickness = 1.5 }
+    }
+    return @{ Shapes = $shapes; Main = $main; T = $main.StrokeThickness }
 }
 
 function Get-InwardAngle {
@@ -177,13 +232,11 @@ function New-CircleVisual {
     $sh.Color = [Windows.Media.Colors]::Black
     $fill.Effect = $sh
     [void]$body.Children.Add($fill)
-    $ring = New-Object Windows.Shapes.Ellipse
-    $ring.StrokeThickness = 1.5
-    $color = ''
-    if ($Item) { $color = [string]$Item.color }
-    $ring.Stroke = Get-RingBrush $color
-    $ring.IsHitTestVisible = $false
-    [void]$body.Children.Add($ring)
+    $color = ''; $style = 'solid'
+    if ($Item) { $color = [string]$Item.color; if ($Item.ring) { $style = [string]$Item.ring } }
+    $rs = New-RingShapes $color $style $D
+    foreach ($sh_ in $rs.Shapes) { [void]$body.Children.Add($sh_) }
+    $ring = $rs.Main
     if ($Item) {
         $emo = New-EmojiVisual ([string]$Item.icon) $EmoPx ([string]$Item.name)
     } else {
@@ -205,7 +258,7 @@ function New-CircleVisual {
             $a = ($base + ($k - ($n - 1) / 2) * 22) * [Math]::PI / 180
             $el = New-Object Windows.Shapes.Ellipse
             $el.Width = $dotD; $el.Height = $dotD
-            if ($color) { $el.Fill = New-Brush $color } else { $el.Fill = New-Brush $script:Pal.Sub }
+            $el.Fill = Get-LabelBrush $color $script:Pal.Sub
             [Windows.Controls.Canvas]::SetLeft($el, $D / 2 + $r * [Math]::Cos($a) - $dotD / 2)
             [Windows.Controls.Canvas]::SetTop($el, $D / 2 + $r * [Math]::Sin($a) - $dotD / 2)
             [void]$cv.Children.Add($el)
@@ -221,7 +274,7 @@ function New-CircleVisual {
     $check = New-EmojiVisual (New-EmojiFromKey '2714-fe0f') $EmoPx
     $check.HorizontalAlignment = 'Center'; $check.VerticalAlignment = 'Center'
     $check.Opacity = 0
-    return @{ El = $root; Sc = $sc; Tr = $tr; Body = $body; Flash = $flash; Check = $check; Ring = $ring; Color = $color }
+    return @{ El = $root; Sc = $sc; Tr = $tr; Body = $body; Flash = $flash; Check = $check; Ring = $ring; RingT = $rs.T; Color = $color }
 }
 
 function New-Circle {
@@ -233,7 +286,7 @@ function New-Circle {
     # Точка, в которую кружок сжимается в покое. Тёмная обводка — чтобы
     # её было видно и на светлых обоях, и на тёмных.
     $dot = New-Object Windows.Shapes.Ellipse
-    if ($v.Color) { $dot.Fill = New-Brush $v.Color } else { $dot.Fill = New-Brush $script:Pal.Sub }
+    $dot.Fill = Get-LabelBrush $v.Color $script:Pal.Sub
     $dot.Stroke = New-Brush $script:Pal.Shade 0x99
     $dot.StrokeThickness = $d / $script:DotPx * 0.9
     $dot.IsHitTestVisible = $false
@@ -980,7 +1033,10 @@ $script:MenuBody = @'
     <StackPanel Margin="6">
       <StackPanel x:Name="MRow" Orientation="Horizontal" HorizontalAlignment="Center"/>
       <TextBlock x:Name="MNote" Style="{StaticResource Hint}" HorizontalAlignment="Center" Margin="8,4,8,2" Visibility="Collapsed"/>
-      <WrapPanel x:Name="MColors" HorizontalAlignment="Center" Margin="6,6,6,2" Visibility="Collapsed"/>
+      <StackPanel x:Name="MColors" HorizontalAlignment="Center" Margin="6,6,6,2" Visibility="Collapsed">
+        <WrapPanel x:Name="MColorDots" HorizontalAlignment="Center" MaxWidth="330"/>
+        <WrapPanel x:Name="MRingRow" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+      </StackPanel>
       <ContentControl x:Name="MPicker" Margin="6,6,6,4" Visibility="Collapsed"/>
     </StackPanel>
 '@
@@ -1024,6 +1080,36 @@ function Get-CircleRect([int]$Idx) {
     return New-Object Windows.Rect ($script:Dock.Left + $c.SX - $d / 2), ($script:Dock.Top + $c.SY - $d / 2), $d, $d
 }
 
+function New-ColorDot {
+    <# Кружок выбора цвета; у радужного — градиент, у «без цвета» — крестик. #>
+    param($Win, [string]$Hex, [string]$Group)
+    $rb = New-Object Windows.Controls.RadioButton
+    $rb.Style = $Win.FindResource('Dot')
+    $rb.GroupName = $Group
+    if ($Hex -eq 'rainbow') { $rb.Background = Get-LabelBrush 'rainbow' ''; $rb.ToolTip = 'Радуга' }
+    elseif ($Hex) { $rb.Background = New-Brush $Hex }
+    else { $rb.Background = New-Brush $script:Pal.Btn; $rb.Content = '×'; $rb.ToolTip = 'Без цвета' }
+    return $rb
+}
+
+function New-RingChip {
+    <# Выбор стиля обводки: чип с маленьким кружком, нарисованным этим стилем. #>
+    param($Win, [string]$Style, [string]$Color, [string]$Group)
+    $rb = New-Object Windows.Controls.RadioButton
+    $rb.Style = $Win.FindResource('Chip')
+    $rb.GroupName = $Group
+    $rb.Padding = '8,5'
+    $rb.Margin = '0,0,6,0'
+    $g = New-Object Windows.Controls.Grid
+    $g.Width = 20; $g.Height = 20
+    $c = $Color
+    if (-not $c) { $c = $script:Pal.Text }
+    foreach ($sh_ in (New-RingShapes $c $Style 20).Shapes) { [void]$g.Children.Add($sh_) }
+    $rb.Content = $g
+    $rb.ToolTip = $script:RingNames[$Style]
+    return $rb
+}
+
 function Show-ItemMenu {
     <#
         Меню у кружка. Child >= 0 — у вложенного кружка веера: тогда правится
@@ -1052,12 +1138,9 @@ function Show-ItemMenu {
     if ($Child -lt 0) { [void]$row.Children.Add((New-MenuButton $w '1f4c2' 'Добавить вложенную (раскроется веером)' 'addchild' $null)) }
     [void]$row.Children.Add((New-MenuButton $w '1f5d1-fe0f' 'Удалить' 'del' $null))
 
-    $colors = $w.FindName('MColors')
+    $colors = $w.FindName('MColorDots')
     foreach ($hex in $script:LabelColors) {
-        $rb = New-Object Windows.Controls.RadioButton
-        $rb.Style = $w.FindResource('Dot')
-        $rb.GroupName = 'mc'
-        if ($hex) { $rb.Background = New-Brush $hex } else { $rb.Background = New-Brush $script:Pal.Btn; $rb.Content = '×'; $rb.ToolTip = 'Без цвета' }
+        $rb = New-ColorDot $w $hex 'mc'
         if ($hex -eq [string]$it.color) { $rb.IsChecked = $true }
         $rb.Tag = @{ Hex = $hex; Win = $w }
         $rb.Add_Click({
@@ -1072,6 +1155,24 @@ function Show-ItemMenu {
             } catch { Write-ErrLog $_ 'цвет кнопки' }
         })
         [void]$colors.Children.Add($rb)
+    }
+    $rings = $w.FindName('MRingRow')
+    foreach ($st in $script:RingNames.Keys) {
+        $rb = New-RingChip $w $st ([string]$it.color) 'mr'
+        if ($st -eq [string]$it.ring -or (-not $it.ring -and $st -eq 'solid')) { $rb.IsChecked = $true }
+        $rb.Tag = @{ Ring = $st; Win = $w }
+        $rb.Add_Click({
+            param($s, $e)
+            try {
+                $mw = $s.Tag.Win
+                $mw.Tag.List[$mw.Tag.Pos].ring = $s.Tag.Ring
+                Save-Config
+                $mw.Close()
+                Close-Fan -Now
+                Rebuild-Dock
+            } catch { Write-ErrLog $_ 'стиль обводки' }
+        })
+        [void]$rings.Children.Add($rb)
     }
     Open-Popup $w $anchor $script:G.edge
 }
@@ -1230,7 +1331,7 @@ function New-GridCell {
     $tip = Get-TipText $It
     if ($ParentName) { $tip = "$ParentName › $tip" }
     $b.ToolTip = $tip
-    $b.Tag = @{ Item = $It; Ring = $v.Ring; Hay = ($ParentName + ' ' + $name + ' ' + $It.text).ToLowerInvariant(); Child = [bool]$ParentName }
+    $b.Tag = @{ Item = $It; Ring = $v.Ring; RingT = $v.RingT; Hay = ($ParentName + ' ' + $name + ' ' + $It.text).ToLowerInvariant(); Child = [bool]$ParentName }
     $b.Add_Click({ param($s, $e) try { Invoke-GridCell $s.Tag.Item } catch { Write-ErrLog $_ 'сетка: клик' } })
     return $b
 }
@@ -1359,7 +1460,7 @@ function Update-GridSelection {
             $b.Tag.Ring.StrokeThickness = 2.5
         } else {
             $b.Tag.Ring.Stroke = Get-RingBrush ([string]$b.Tag.Item.color)
-            $b.Tag.Ring.StrokeThickness = 1.5
+            $b.Tag.Ring.StrokeThickness = $b.Tag.RingT
         }
     }
 }
