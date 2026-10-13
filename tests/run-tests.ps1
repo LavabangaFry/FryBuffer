@@ -394,6 +394,74 @@ Test-Case 'неизвестный стиль и цвет обводки сбра
     Assert-Equal '' $c.items[0].color 'цвет'
 }
 
+Test-Case 'ссылка из текста кнопки для сетки' {
+    Assert-Equal 'https://portal.lalala.com' (Get-ItemLink (New-ClipItem -Text 'https://portal.lalala.com'))
+    Assert-Equal 'https://www.lalala.com/a?b=1' (Get-ItemLink (New-ClipItem -Text 'Смотри www.lalala.com/a?b=1.')) 'www и точка в конце'
+    Assert-Equal 'http://10.0.0.1:8080/x' (Get-ItemLink (New-ClipItem -Text "Портал:`r`nhttp://10.0.0.1:8080/x")) 'вторая строка и порт'
+    Assert-True ($null -eq (Get-ItemLink (New-ClipItem -Text '192.168.0.10'))) 'IP без схемы — не ссылка'
+    Assert-True ($null -eq (Get-ItemLink (New-ClipItem -Text 'https://{user}.lalala.com'))) 'шаблон в адресе не открываем'
+    $s = New-ClipItem -Text 'https://secret.lalala.com'; $s.secret = $true
+    Assert-True ($null -eq (Get-ItemLink $s)) 'у секрета ссылку не ищем'
+}
+
+Write-Host 'Секреты'
+
+$script:TestVault = New-Vault 'Единорог-42!'
+
+Test-Case 'секрет шифруется и расшифровывается, кириллица и эмодзи целы' {
+    $k = $script:TestVault.Key
+    $plain = "P@ssw0rd-Пароль 🦄`r`nвторая строка"
+    $c1 = Protect-Secret $plain $k
+    $c2 = Protect-Secret $plain $k
+    Assert-True ($c1 -ne $c2) 'одинаковый текст даёт разный шифр (случайный IV)'
+    Assert-True ($c1 -notmatch 'Пароль|P@ss') 'в шифре нет открытого текста'
+    Assert-Equal $plain (Unprotect-Secret $c1 $k) 'расшифровка'
+}
+
+Test-Case 'мастер-пароль проверяется по контрольной шифровке' {
+    $v = $script:TestVault.Vault
+    Assert-True ($null -ne (Open-Vault $v 'Единорог-42!')) 'верный пароль открывает'
+    Assert-True ($null -eq (Open-Vault $v 'единорог-42!')) 'регистр важен'
+    Assert-True ($null -eq (Open-Vault $v '')) 'пустой пароль не открывает'
+}
+
+Test-Case 'чужой ключ и испорченный шифр — ошибка, а не мусор' {
+    <#
+        Без проверки HMAC AES-CBC «расшифровал» бы шифр чужим ключом в
+        случайные байты, и в буфер ушёл бы мусор вместо пароля — молча.
+    #>
+    $c = Protect-Secret 'секрет' $script:TestVault.Key
+    $other = (New-Vault 'другой').Key
+    Assert-Throws { Unprotect-Secret $c $other } 'чужой ключ'
+    $bytes = [Convert]::FromBase64String($c)
+    $bytes[20] = $bytes[20] -bxor 1
+    Assert-Throws { Unprotect-Secret ([Convert]::ToBase64String($bytes)) $script:TestVault.Key } 'испорченный байт'
+}
+
+Test-Case 'в config.json у секрета нет открытого текста' {
+    <#
+        Если секретной кнопке случайно оставить text (или вписать его руками),
+        он не должен ни записаться на диск, ни прочитаться обратно.
+    #>
+    $p = Join-Path $tmpDir 'secret.json'
+    $c = Get-DefaultConfig
+    $c.vault = $script:TestVault.Vault
+    $it = New-ClipItem -Name 'Пароль от Wi-Fi' -Text 'ОТКРЫТЫЙ-ТЕКСТ'
+    $it.secret = $true
+    $it.enc = Protect-Secret 'qwerty123' $script:TestVault.Key
+    [void]$c.items.Add($it)
+    Write-ClipConfig $p $c
+    $json = [IO.File]::ReadAllText($p)
+    Assert-True ($json -notmatch 'ОТКРЫТЫЙ-ТЕКСТ|qwerty123') 'открытого текста в файле нет'
+    $r = Read-ClipConfig $p
+    Assert-True $r.items[0].secret 'признак секрета'
+    Assert-Equal '' $r.items[0].text 'текст пустой'
+    $key = Open-Vault $r.vault 'Единорог-42!'
+    Assert-Equal 'qwerty123' (Unprotect-Secret $r.items[0].enc $key) 'после чтения расшифровывается'
+    $raw = '{"items":[{"name":"x","secret":true,"text":"руками","enc":""}]}' | ConvertFrom-Json
+    Assert-Equal '' (ConvertTo-ClipConfig $raw).items[0].text 'вписанный руками текст секрета не читается'
+}
+
 Test-Case 'файл с BOM от блокнота читается' {
     $p = Join-Path $tmpDir 'bom.json'
     [IO.File]::WriteAllText($p, '{"edge":"left","items":[{"name":"Блокнот","text":"t"}]}', (New-Object Text.UTF8Encoding($true)))

@@ -41,6 +41,12 @@ Update-Palette $script:Cfg
 $script:Scale = 1.0
 $script:HotkeyStatus = 'Win+Alt+V работает'
 $script:Version = '2026.10.13 · снимок'
+# Секрет для снимков: мастер-пароль известен только этому скрипту
+$nv = New-Vault 'snapshot-pass'
+$script:Cfg.vault = $nv.Vault
+Set-UnlockedKey $nv.Key
+$sec = $script:Cfg.items[5]
+$sec.secret = $true; $sec.enc = Protect-Secret 'Tr0ub4dor&3' $nv.Key; $sec.text = ''
 Rebuild-Dock
 
 function Get-MenuBtn($Win, [string]$Act) { @($Win.FindName('MRow').Children | Where-Object { $_.Tag.Act -eq $Act })[0] }
@@ -71,6 +77,10 @@ Snap 'settings-tree' { Open-Settings 0 -Child 1; Save-WindowSnapshot $script:Set
 Snap 'settings-items' { Select-SettingsItem (Find-SettingsRow 3); Save-WindowSnapshot $script:SettingsWin }
 Snap 'settings-new' { Add-SettingsItem; Save-WindowSnapshot $script:SettingsWin }
 Snap 'settings-close-armed' { Close-Settings; Save-WindowSnapshot $script:SettingsWin }
+Snap 'pw-unlock' { [void](Show-PasswordDialog 'unlock' $null (New-Object Windows.Rect 700, 600, 2, 2) 'bottom') }
+Snap 'pw-create' { [void](Show-PasswordDialog 'create' $null (New-Object Windows.Rect 700, 600, 2, 2) 'bottom') }
+Snap 'settings-secret' { $script:SettingsState.TabItems.IsChecked = $true; Select-SettingsItem (Find-SettingsRow 5); Save-WindowSnapshot $script:SettingsWin }
+Snap 'settings-secret-locked' { Lock-Vault; Select-SettingsItem (Find-SettingsRow 5); Save-WindowSnapshot $script:SettingsWin; Set-UnlockedKey $nv.Key }
 Snap 'settings-look' { $script:SettingsState.TabLook.IsChecked = $true; Save-WindowSnapshot $script:SettingsWin }
 
 Write-Host ("Снимков: {0}, ошибок: {1}, папка: {2}" -f $script:SnapshotNo, $script:Errors, $Out)

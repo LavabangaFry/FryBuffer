@@ -114,6 +114,19 @@ function Expand-Template {
     return [regex]::Replace([string]$Text, $script:TplPattern, [System.Text.RegularExpressions.MatchEvaluator]$eval)
 }
 
+function Get-ItemLink($It) {
+    <#
+        Первая ссылка в тексте кнопки: http(s)://… или www.… Секрет не
+        разбирается — его текст не расшифровывается ради поиска ссылки.
+    #>
+    if (-not $It -or $It.secret) { return $null }
+    $m = [regex]::Match([string]$It.text, '(?i)\b(https?://[^\s<>"''{}]+|www\.[^\s<>"''{}]+)')
+    if (-not $m.Success) { return $null }
+    $u = $m.Value.TrimEnd('.', ',', ';', ')', ']')
+    if ($u -notmatch '^(?i)https?://') { $u = 'https://' + $u }
+    return $u
+}
+
 # --- Хоткей ------------------------------------------------------------------
 
 function ConvertFrom-Hotkey {
@@ -175,7 +188,7 @@ function New-ClipItem {
     #>
     param([string]$Name = '', [string]$Text = '', [string]$Icon = '', [string]$Color = '', [int]$Counter = 0, [string]$Ring = 'solid')
     if ($script:RingStyles -notcontains $Ring) { $Ring = 'solid' }
-    return [ordered]@{ name = $Name; text = $Text; icon = $Icon; color = $Color; ring = $Ring; counter = $Counter; children = (New-Object System.Collections.ArrayList) }
+    return [ordered]@{ name = $Name; text = $Text; icon = $Icon; color = $Color; ring = $Ring; counter = $Counter; secret = $false; enc = ''; children = (New-Object System.Collections.ArrayList) }
 }
 
 function Copy-ClipItemDeep {
@@ -184,6 +197,7 @@ function Copy-ClipItemDeep {
     $cnt = 0
     if ($KeepCounter) { $cnt = [int]$It.counter }
     $c = New-ClipItem -Name ([string]$It.name) -Text ([string]$It.text) -Icon ([string]$It.icon) -Color ([string]$It.color) -Counter $cnt -Ring ([string]$It.ring)
+    $c.secret = [bool]$It.secret; $c.enc = [string]$It.enc
     foreach ($ch in @($It.children)) {
         if ($null -ne $ch) { [void]$c.children.Add((Copy-ClipItemDeep $ch -KeepCounter:$KeepCounter)) }
     }
@@ -198,6 +212,12 @@ function ConvertTo-ClipItem {
     [void][int]::TryParse([string](Get-Prop $Raw 'counter'), [ref]$cnt)
     $it = New-ClipItem -Name ([string](Get-Prop $Raw 'name')) -Text ([string](Get-Prop $Raw 'text')) `
         -Icon ([string](Get-Prop $Raw 'icon')) -Color $color -Counter $cnt -Ring ([string](Get-Prop $Raw 'ring'))
+    if (Get-Prop $Raw 'secret') {
+        # Секрет: в файле только шифр; открытый текст, если его туда вписали руками, не берём
+        $it.secret = $true
+        $it.enc = [string](Get-Prop $Raw 'enc')
+        $it.text = ''
+    }
     if ($WithChildren) {
         foreach ($ch in @(Get-Prop $Raw 'children')) {
             # Глубже одного уровня не идём: веер из веера у края экрана
@@ -213,6 +233,12 @@ function ConvertTo-ItemJson {
     $o = [ordered]@{ name = $It.name; text = $It.text; icon = $It.icon; color = $It.color; counter = [int]$It.counter }
     # Сплошная обводка — по умолчанию, в конфиг её не пишем, чтобы не шуметь
     if ($It.ring -and $It.ring -ne 'solid') { $o.ring = $It.ring }
+    if ($It.secret) {
+        # Открытый текст секрета на диск не пишется ни при каких условиях
+        $o.text = ''
+        $o.secret = $true
+        $o.enc = [string]$It.enc
+    }
     if ($It.children -and $It.children.Count -gt 0) {
         $o.children = @(foreach ($ch in $It.children) { ConvertTo-ItemJson $ch })
     }
@@ -235,6 +261,7 @@ function Get-DefaultConfig {
         mode        = 'auto'
         hotkey      = 'Win+Alt+V'
         lastVersion = ''
+        vault       = $null
         recentEmoji = @()
         items       = (New-Object System.Collections.ArrayList)
     }
@@ -289,6 +316,10 @@ function ConvertTo-ClipConfig {
     if ($null -ne $mg) { $c.magnify = [bool]$mg }
     $sc = Get-Prop $Raw 'screen'
     if ($null -ne $sc) { $c.screen = [string]$sc }
+    $vt = Get-Prop $Raw 'vault'
+    if ($vt -and (Get-Prop $vt 'salt') -and (Get-Prop $vt 'check')) {
+        $c.vault = [ordered]@{ salt = [string](Get-Prop $vt 'salt'); iter = [int](Get-Prop $vt 'iter'); check = [string](Get-Prop $vt 'check') }
+    }
     $lv = Get-Prop $Raw 'lastVersion'
     if ($null -ne $lv) { $c.lastVersion = [string]$lv }
 
@@ -463,6 +494,98 @@ function Move-OldAutostart {
     Remove-ItemProperty -Path $Key -Name 'clipbuttons' -ErrorAction SilentlyContinue
     Set-Autostart $Root $true $Key $Exe
     return $true
+}
+
+# --- Секреты: шифрование мастер-паролем ---------------------------------------
+# AES-256-CBC + HMAC-SHA256 поверх шифра (encrypt-then-MAC): в .NET Framework
+# нет AES-GCM, а без MAC подменённый шифр расшифровался бы в мусор молча.
+# Ключ — PBKDF2-SHA256 от мастер-пароля; сам пароль нигде не хранится,
+# в конфиге только соль, число итераций и контрольная шифровка.
+
+$script:VaultIter = 150000
+$script:VaultCheck = 'FryBuffer-vault-check'
+
+function Get-VaultKey {
+    <# Ключи шифрования и проверки из пароля: PBKDF2 один раз, дальше дешёвый HMAC. #>
+    param([string]$Password, [byte[]]$Salt, [int]$Iter = $script:VaultIter)
+    $kdf = New-Object Security.Cryptography.Rfc2898DeriveBytes($Password, $Salt, $Iter, [Security.Cryptography.HashAlgorithmName]::SHA256)
+    $master = $kdf.GetBytes(32)
+    $kdf.Dispose()
+    $h = New-Object Security.Cryptography.HMACSHA256 (, $master)
+    $enc = $h.ComputeHash([Text.Encoding]::ASCII.GetBytes('enc'))
+    $mac = $h.ComputeHash([Text.Encoding]::ASCII.GetBytes('mac'))
+    $h.Dispose()
+    [Array]::Clear($master, 0, $master.Length)
+    return @{ Enc = $enc; Mac = $mac }
+}
+
+function Protect-Secret {
+    <# Текст -> base64( iv(16) | шифр | hmac(32) ). #>
+    param([string]$Plain, [hashtable]$Key)
+    $aes = [Security.Cryptography.Aes]::Create()
+    $aes.Key = $Key.Enc
+    $aes.GenerateIV()
+    $data = [Text.Encoding]::UTF8.GetBytes([string]$Plain)
+    $ct = $aes.CreateEncryptor().TransformFinalBlock($data, 0, $data.Length)
+    $iv = $aes.IV
+    $aes.Dispose()
+    $body = New-Object byte[] ($iv.Length + $ct.Length)
+    [Array]::Copy($iv, 0, $body, 0, $iv.Length)
+    [Array]::Copy($ct, 0, $body, $iv.Length, $ct.Length)
+    $h = New-Object Security.Cryptography.HMACSHA256 (, $Key.Mac)
+    $tag = $h.ComputeHash($body)
+    $h.Dispose()
+    $all = New-Object byte[] ($body.Length + $tag.Length)
+    [Array]::Copy($body, 0, $all, 0, $body.Length)
+    [Array]::Copy($tag, 0, $all, $body.Length, $tag.Length)
+    return [Convert]::ToBase64String($all)
+}
+
+function Unprotect-Secret {
+    <# Обратно в текст. Чужой ключ или испорченный шифр — исключение, а не мусор. #>
+    param([string]$Cipher, [hashtable]$Key)
+    $all = [Convert]::FromBase64String($Cipher)
+    if ($all.Length -lt 16 + 16 + 32) { throw 'Шифр секрета повреждён: слишком короткий' }
+    $bodyLen = $all.Length - 32
+    $h = New-Object Security.Cryptography.HMACSHA256 (, $Key.Mac)
+    $tag = $h.ComputeHash($all, 0, $bodyLen)
+    $h.Dispose()
+    # Сравнение без раннего выхода: время не должно выдавать, сколько байт совпало
+    $diff = 0
+    for ($i = 0; $i -lt 32; $i++) { $diff = $diff -bor ($tag[$i] -bxor $all[$bodyLen + $i]) }
+    if ($diff -ne 0) { throw 'Секрет не расшифровывается: другой мастер-пароль или файл испорчен' }
+    $aes = [Security.Cryptography.Aes]::Create()
+    $aes.Key = $Key.Enc
+    $iv = New-Object byte[] 16
+    [Array]::Copy($all, 0, $iv, 0, 16)
+    $aes.IV = $iv
+    $plain = $aes.CreateDecryptor().TransformFinalBlock($all, 16, $bodyLen - 16)
+    $aes.Dispose()
+    return [Text.Encoding]::UTF8.GetString($plain)
+}
+
+function New-Vault {
+    <# Новое хранилище: соль, итерации и контрольная шифровка для проверки пароля. #>
+    param([string]$Password)
+    $salt = New-Object byte[] 16
+    $rng = New-Object Security.Cryptography.RNGCryptoServiceProvider
+    $rng.GetBytes($salt); $rng.Dispose()
+    $key = Get-VaultKey $Password $salt $script:VaultIter
+    $vault = [ordered]@{ salt = [Convert]::ToBase64String($salt); iter = $script:VaultIter; check = (Protect-Secret $script:VaultCheck $key) }
+    return @{ Vault = $vault; Key = $key }
+}
+
+function Open-Vault {
+    <# Проверка пароля: ключ, если пароль верный, иначе $null. #>
+    param($Vault, [string]$Password)
+    if (-not $Vault) { return $null }
+    $iter = [int](Get-Prop $Vault 'iter')
+    if ($iter -le 0) { $iter = $script:VaultIter }
+    $key = Get-VaultKey $Password ([Convert]::FromBase64String([string](Get-Prop $Vault 'salt'))) $iter
+    try {
+        if ((Unprotect-Secret ([string](Get-Prop $Vault 'check')) $key) -eq $script:VaultCheck) { return $key }
+    } catch { }
+    return $null
 }
 
 function Add-RecentEmoji {

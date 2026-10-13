@@ -245,6 +245,14 @@ function New-CircleVisual {
     $emo.HorizontalAlignment = 'Center'; $emo.VerticalAlignment = 'Center'
     [void]$body.Children.Add($emo)
 
+    if ($Item -and $Item.secret) {
+        # Замочек в углу: видно, что кнопка секретная
+        $lk = New-EmojiVisual (New-EmojiFromKey '1f512') ([Math]::Max(9, $D * 0.42))
+        $lk.HorizontalAlignment = 'Right'; $lk.VerticalAlignment = 'Bottom'
+        $lk.Margin = New-Object Windows.Thickness 0, 0, (-$D * 0.08), (-$D * 0.06)
+        [void]$body.Children.Add($lk)
+    }
+
     $kids = 0
     if ($Item -and $Item.children) { $kids = $Item.children.Count }
     if ($kids -gt 0) {
@@ -518,6 +526,10 @@ $script:TipWin.ShowActivated = $false
 $script:TipWin.IsHitTestVisible = $false
 
 function Get-TipText($It) {
+    if ($It.secret) {
+        if (-not $It.enc) { return 'Секрет не задан' }
+        return '••••••••  · секрет'
+    }
     $prev = Get-Preview $It.text
     if (-not $prev) {
         if ($It.children -and $It.children.Count -gt 0) { $prev = 'Клик — показать вложенные' }
@@ -564,6 +576,92 @@ function Update-Tip {
         $it = $script:Cfg.items[$Idx]
         Show-TipFor $Idx ([string]$it.name) (Get-TipText $it)
     } catch { Write-ErrLog $_ 'подсказка' }
+}
+
+# --- Секреты -----------------------------------------------------------------
+# Ключ живёт только в памяти процесса, до выхода или «Заблокировать секреты».
+# VaultKeyFor помнит, к какому хранилищу он подходит: если хранилище сменили
+# (сброс, откат настроек), старый ключ больше не используется.
+
+$script:VaultKey = $null
+$script:VaultKeyFor = ''
+$script:SecretClearSec = 10
+
+function Get-UnlockedKey {
+    $v = $script:Cfg.vault
+    if ($script:VaultKey -and $v -and $script:VaultKeyFor -eq [string]$v.check) { return $script:VaultKey }
+    return $null
+}
+
+function Set-UnlockedKey($Key) {
+    $script:VaultKey = $Key
+    if ($Key) { $script:VaultKeyFor = [string]$script:Cfg.vault.check } else { $script:VaultKeyFor = '' }
+    Update-TrayIcon
+}
+
+function Lock-Vault {
+    if ($script:VaultKey) {
+        foreach ($b in $script:VaultKey.Values) { [Array]::Clear($b, 0, $b.Length) }
+    }
+    Set-UnlockedKey $null
+}
+
+function Unlock-Vault {
+    <# Ключ сеанса; если заблокировано — спросить мастер-пароль. $null — не открыли. #>
+    param([Windows.Rect]$Anchor, [string]$Edge = 'bottom')
+    $k = Get-UnlockedKey
+    if ($k) { return $k }
+    if (-not $script:Cfg.vault) { return $null }
+    $script:PwKey = $null
+    $script:Hold++
+    try {
+        $pw = Show-PasswordDialog 'unlock' {
+            param($pw)
+            $script:PwKey = Open-Vault $script:Cfg.vault $pw
+            if (-not $script:PwKey) { return 'Неверный мастер-пароль' }
+            return $null
+        } $Anchor $Edge
+    } finally { $script:Hold = [Math]::Max(0, $script:Hold - 1) }
+    if ($null -eq $pw -or -not $script:PwKey) { return $null }
+    Set-UnlockedKey $script:PwKey
+    $script:PwKey = $null
+    return (Get-UnlockedKey)
+}
+
+function Set-SecretClip([string]$Text) {
+    <#
+        Пароль в буфер — мимо журнала Win+V и облачного буфера (форматы,
+        которые Windows для этого и читает), и через 10 с стирается, если
+        в буфере всё ещё он.
+    #>
+    $do = New-Object Windows.Forms.DataObject
+    $do.SetData([Windows.Forms.DataFormats]::UnicodeText, $Text)
+    $do.SetData('ExcludeClipboardContentFromMonitorProcessing', (New-Object IO.MemoryStream (, [byte[]](1, 0, 0, 0))))
+    $do.SetData('CanIncludeInClipboardHistory', (New-Object IO.MemoryStream (, [byte[]](0, 0, 0, 0))))
+    $do.SetData('CanUploadToCloudClipboard', (New-Object IO.MemoryStream (, [byte[]](0, 0, 0, 0))))
+    [Windows.Forms.Clipboard]::SetDataObject($do, $true, 10, 60)
+    if (-not $script:ClearTimer) {
+        $script:ClearTimer = New-Object Windows.Threading.DispatcherTimer
+        $script:ClearTimer.Add_Tick({
+            param($s, $e)
+            $s.Stop()
+            try {
+                if ([Windows.Forms.Clipboard]::ContainsText() -and [Windows.Forms.Clipboard]::GetText() -ceq $script:SecretInClip) {
+                    [Windows.Forms.Clipboard]::Clear()
+                }
+            } catch { Write-ErrLog $_ 'очистка буфера' }
+            $script:SecretInClip = $null
+        })
+    }
+    $script:SecretInClip = $Text
+    $script:ClearTimer.Stop()
+    $script:ClearTimer.Interval = [TimeSpan]::FromSeconds($script:SecretClearSec)
+    $script:ClearTimer.Start()
+}
+
+function Get-CopiedText {
+    if ($script:LastWasSecret) { return "Скопировано · исчезнет через $($script:SecretClearSec) с" }
+    return 'Скопировано'
 }
 
 # --- Копирование -------------------------------------------------------------
@@ -617,7 +715,21 @@ function Invoke-ClipItem {
     param($Item, [Windows.Rect]$Anchor, [string]$Edge, [IntPtr]$PrevFg = [IntPtr]::Zero)
     if (-not $Item) { return $false }
     $it = $Item
+    $script:LastWasSecret = [bool]$it.secret
     $text = [string]$it.text
+    if ($it.secret) {
+        if (-not $it.enc) { Show-Toast 'Секрет не задан — правый клик, «Изменить»' ($Anchor.X + $Anchor.Width / 2) $Anchor.Y; return $false }
+        if ($PrevFg -eq [IntPtr]::Zero) { $PrevFg = [ClipNative]::GetForegroundWindow() }
+        $hadKey = [bool](Get-UnlockedKey)
+        $key = Unlock-Vault $Anchor $Edge
+        if (-not $hadKey) { Restore-Foreground $PrevFg }
+        if (-not $key) { return $false }
+        try { $text = Unprotect-Secret $it.enc $key } catch {
+            Write-ErrLog $_.Exception.Message 'секрет'
+            Show-Toast 'Секрет не расшифровался — задайте его заново' ($Anchor.X + $Anchor.Width / 2) $Anchor.Y
+            return $false
+        }
+    }
     if (-not $text) {
         Show-Toast 'Текст не задан' ($Anchor.X + $Anchor.Width / 2) $Anchor.Y
         return $false
@@ -643,7 +755,7 @@ function Invoke-ClipItem {
     }
     $out = Expand-Template $text $ctx
     try {
-        Set-ClipText $out
+        if ($it.secret) { Set-SecretClip $out } else { Set-ClipText $out }
     } catch {
         Write-ErrLog $_ 'буфер обмена'
         Show-Toast 'Буфер обмена занят другой программой' ($Anchor.X + $Anchor.Width / 2) $Anchor.Y
@@ -665,7 +777,7 @@ function Invoke-DockCircle {
     if (Invoke-ClipItem $it $r $script:G.edge) {
         Start-Flash $c
         $script:TipLock = [Environment]::TickCount + 900
-        Show-TipFor $Idx '' 'Скопировано'
+        Show-TipFor $Idx '' (Get-CopiedText)
     }
 }
 
@@ -840,7 +952,7 @@ function Invoke-FanChild {
     if (Invoke-ClipItem $c.Item $r $script:G.edge) {
         Start-Flash $c
         $script:TipLock = [Environment]::TickCount + 900
-        Show-TipAt $r '' 'Скопировано'
+        Show-TipAt $r '' (Get-CopiedText)
         # Веер держится, пока видна вспышка, — иначе непонятно, что сработало
         if ($script:Fan) { $script:Fan.CloseAt = [Environment]::TickCount + 650 }
     }
@@ -1284,9 +1396,24 @@ $script:GridBody = @'
           <WrapPanel x:Name="GKids"/>
         </StackPanel>
       </Border>
-      <TextBlock Style="{StaticResource Hint}" Margin="2,8,0,0" Text="1–9 — сразу, стрелки и Enter — выбрать, пробел — вложенные, Esc — закрыть"/>
+      <TextBlock Style="{StaticResource Hint}" Margin="2,8,0,0" Text="1–9 — сразу, стрелки и Enter — выбрать, пробел — вложенные, Ctrl+Enter — открыть ссылку, Esc — закрыть" TextWrapping="Wrap" MaxWidth="430"/>
     </StackPanel>
 '@
+
+function Open-ItemLink {
+    <# Ссылку открывает браузер по умолчанию; сетка закрывается — фокус уйдёт в браузер. #>
+    param([string]$Url)
+    try {
+        if ($script:GridWin) { $script:GridWin.Close() }
+        Start-Process $Url
+        $cur = Get-CursorDip $script:Scale
+        Show-Toast 'Открываю ссылку' $cur.X $cur.Y
+    } catch {
+        Write-ErrLog $_ "ссылка $Url"
+        $cur = Get-CursorDip $script:Scale
+        Show-Toast 'Ссылка не открылась — подробности в логе' $cur.X $cur.Y
+    }
+}
 
 function New-GridCell {
     <# Ячейка сетки: кружок 44 px, номер для быстрого выбора и подпись. #>
@@ -1314,6 +1441,21 @@ function New-GridCell {
         $badge.Child = $numTb
         [void]$v.El.Children.Add($badge)
     }
+    $link = Get-ItemLink $It
+    if ($link) {
+        # Кнопка ↗ в левом верхнем углу: открыть ссылку, а не копировать
+        $lb = New-Object Windows.Controls.Button
+        $lb.Style = $Win.FindResource('Round')
+        $lb.Width = 20; $lb.Height = 20
+        $lb.HorizontalAlignment = 'Left'; $lb.VerticalAlignment = 'Top'
+        $lb.Margin = '-7,-4,0,0'
+        $lb.Background = New-Brush $script:Pal.Panel
+        $lb.Content = New-EmojiVisual (New-EmojiFromKey '2197-fe0f') 12
+        $lb.ToolTip = "Открыть: $link"
+        $lb.Tag = $link
+        $lb.Add_Click({ param($s, $e) $e.Handled = $true; try { Open-ItemLink ([string]$s.Tag) } catch { Write-ErrLog $_ 'ссылка' } })
+        [void]$v.El.Children.Add($lb)
+    }
     [void]$sp.Children.Add($v.El)
     $lbl = New-Object Windows.Controls.TextBlock
     $name = [string]$It.name
@@ -1330,9 +1472,18 @@ function New-GridCell {
     $b.Content = $sp
     $tip = Get-TipText $It
     if ($ParentName) { $tip = "$ParentName › $tip" }
+    if ($link) { $tip += "`nCtrl+клик или ↗ — открыть ссылку" }
     $b.ToolTip = $tip
-    $b.Tag = @{ Item = $It; Ring = $v.Ring; RingT = $v.RingT; Hay = ($ParentName + ' ' + $name + ' ' + $It.text).ToLowerInvariant(); Child = [bool]$ParentName }
-    $b.Add_Click({ param($s, $e) try { Invoke-GridCell $s.Tag.Item } catch { Write-ErrLog $_ 'сетка: клик' } })
+    $hay = $ParentName + ' ' + $name
+    if (-not $It.secret) { $hay += ' ' + $It.text }
+    $b.Tag = @{ Item = $It; Ring = $v.Ring; RingT = $v.RingT; Hay = $hay.ToLowerInvariant(); Child = [bool]$ParentName; Link = $link }
+    $b.Add_Click({
+        param($s, $e)
+        try {
+            $ctrl = ([Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Control) -ne 0
+            if ($ctrl -and $s.Tag.Link) { Open-ItemLink $s.Tag.Link } else { Invoke-GridCell $s.Tag.Item }
+        } catch { Write-ErrLog $_ 'сетка: клик' }
+    })
     return $b
 }
 
@@ -1474,7 +1625,9 @@ function Invoke-GridKey {
     if ($k -eq 'Return') {
         $E.Handled = $true
         $sel = Get-GridSelected
-        if ($sel) { Invoke-GridCell $sel.Tag.Item }
+        $ctrl = ([Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Control) -ne 0
+        if ($sel -and $ctrl -and $sel.Tag.Link) { Open-ItemLink $sel.Tag.Link }
+        elseif ($sel) { Invoke-GridCell $sel.Tag.Item }
         return
     }
     if ($k -eq 'Space' -and -not $search.Text) {
@@ -1512,7 +1665,9 @@ function Invoke-GridCell {
     if (Invoke-ClipItem $Item (New-Object Windows.Rect ($r.X + $r.Width / 2 - 1), ($r.Y + $r.Height / 2), 2, 2) 'bottom' $prev) {
         # Фокус возвращается в окно, где был курсор: сразу можно Ctrl+V
         Restore-Foreground $prev
-        Show-Toast 'Скопировано — Ctrl+V' $cur.X $cur.Y
+        $msg = 'Скопировано — Ctrl+V'
+        if ($script:LastWasSecret) { $msg += " · исчезнет через $($script:SecretClearSec) с" }
+        Show-Toast $msg $cur.X $cur.Y
     }
 }
 # --- Трей --------------------------------------------------------------------
@@ -1618,6 +1773,7 @@ function Show-TrayMenu {
     Add-TrayRow $w '2699-fe0f' 'Настройки…' 'settings'
     Add-TrayRow $w '1f4dd' 'Открыть config.json' 'config'
     Add-TrayRow $w '1f4c2' 'Папка панели' 'folder'
+    if (Get-UnlockedKey) { Add-TrayRow $w '1f512' 'Заблокировать секреты' 'lock' 'открыты' }
     $as = Get-AutostartState $script:Root -Exe $script:ExePath
     if ($as.On) { Add-TrayRow $w '2705' 'Запускать вместе с Windows' 'autostart' 'вкл' } else { Add-TrayRow $w '2b1c' 'Запускать вместе с Windows' 'autostart' 'выкл' }
     Add-TraySep $w
@@ -1644,6 +1800,11 @@ function Invoke-TrayAction {
         'pin'      { $script:Cfg.mode = 'pinned'; Save-Config; Rebuild-Dock }
         'unpin'    { $script:Cfg.mode = 'auto'; Save-Config; Rebuild-Dock }
         'grid'     { Show-QuickGrid }
+        'lock'     {
+            Lock-Vault
+            $cur = Get-CursorDip $script:Scale
+            Show-Toast 'Секреты заблокированы' $cur.X $cur.Y
+        }
         'new'      { Open-Settings -1 -NewItem }
         'settings' { Open-Settings -1 }
         'config'   { Start-Process notepad.exe -ArgumentList ('"{0}"' -f $script:CfgPath) }

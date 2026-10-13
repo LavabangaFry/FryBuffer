@@ -239,6 +239,26 @@ $script:Styles = @'
   </Setter>
 </Style>
 
+<Style TargetType="PasswordBox">
+  <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+  <Setter Property="CaretBrush" Value="{DynamicResource B.Text}"/>
+  <Setter Property="SelectionBrush" Value="{DynamicResource B.Accent}"/>
+  <Setter Property="Padding" Value="9,6"/>
+  <Setter Property="PasswordChar" Value="●"/>
+  <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+  <Setter Property="Template">
+    <Setter.Value>
+      <ControlTemplate TargetType="PasswordBox">
+        <Border x:Name="Bd" Background="{DynamicResource B.Field}" BorderBrush="{DynamicResource B.Line}" BorderThickness="1" CornerRadius="6">
+          <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource B.Accent}"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate>
+    </Setter.Value>
+  </Setter>
+</Style>
 <Style x:Key="Chip" TargetType="RadioButton">
   <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
   <Setter Property="Margin" Value="0,0,6,6"/>
@@ -928,4 +948,89 @@ function Show-PromptDialog {
     $ans = @{}
     foreach ($l in $Labels) { $ans[$l] = $boxes[$l].Text }
     return $ans
+}
+
+# --- Мастер-пароль -----------------------------------------------------------
+
+function Show-PasswordDialog {
+    <#
+        Окно мастер-пароля. Mode: unlock — один пароль; create — пароль дважды
+        и предупреждение. Validate получает пароль и возвращает текст ошибки
+        или $null: ошибка показывается в том же окне, а не закрывает его.
+        Возвращает введённый пароль или $null, если закрыли.
+    #>
+    param([string]$Mode, [scriptblock]$Validate, [Windows.Rect]$Anchor, [string]$Edge, [string]$Title = '')
+    $body = @"
+    <StackPanel Margin="16,12,16,14" Width="320">
+      <DockPanel Margin="0,0,0,2">
+        <ContentControl x:Name="PwIcon" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,8,0"/>
+        <TextBlock x:Name="PwTitle" Style="{StaticResource H}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+      </DockPanel>
+      <TextBlock x:Name="PwLbl1" Style="{StaticResource Lbl}" Margin="0,10,0,5"/>
+      <PasswordBox x:Name="Pw1"/>
+      <TextBlock x:Name="PwLbl2" Style="{StaticResource Lbl}" Margin="0,10,0,5" Text="Ещё раз"/>
+      <PasswordBox x:Name="Pw2"/>
+      <TextBlock x:Name="PwWarn" Style="{StaticResource Hint}" Margin="0,10,0,0"/>
+      <TextBlock x:Name="PwErr" Style="{StaticResource Hint}" Foreground="{DynamicResource B.Err}" Margin="0,8,0,0" Visibility="Collapsed"/>
+      <DockPanel Margin="0,14,0,0">
+        <TextBlock DockPanel.Dock="Left" Style="{StaticResource Hint}" VerticalAlignment="Center" Text="Enter — готово, Esc — отмена"/>
+        <Button x:Name="PwOk" Style="{StaticResource Primary}" HorizontalAlignment="Right" IsDefault="True"/>
+      </DockPanel>
+    </StackPanel>
+"@
+    $w = New-GlassWindow (New-WindowXaml $body 12) -Radius 12 -Strength 0.9
+    $w.FindName('PwIcon').Content = New-EmojiVisual (New-EmojiFromKey '1f510') 20
+    $create = $Mode -eq 'create'
+    if ($create) {
+        if (-not $Title) { $Title = 'Придумайте мастер-пароль' }
+        $w.FindName('PwLbl1').Text = 'Мастер-пароль, не короче 6 символов'
+        $w.FindName('PwWarn').Text = 'Им шифруются все секретные кнопки. Забудете — их не восстановить: пароль нигде не хранится.'
+        $w.FindName('PwOk').Content = 'Сохранить'
+    } else {
+        if (-not $Title) { $Title = 'Секреты заблокированы' }
+        $w.FindName('PwLbl1').Text = 'Мастер-пароль'
+        $w.FindName('PwLbl2').Visibility = 'Collapsed'
+        $w.FindName('Pw2').Visibility = 'Collapsed'
+        $w.FindName('PwWarn').Text = 'Спрашивается один раз до выхода из программы или до «Заблокировать секреты» в трее.'
+        $w.FindName('PwOk').Content = 'Разблокировать'
+    }
+    $w.FindName('PwTitle').Text = $Title
+    $script:PwState = @{ Win = $w; Create = $create; Validate = $Validate; Result = $null; Anchor = $Anchor; Edge = $Edge }
+    $w.FindName('PwOk').Add_Click({
+        try {
+            $st = $script:PwState
+            $pw = $st.Win.FindName('Pw1').Password
+            $err = $null
+            if ($st.Create) {
+                if ($pw.Length -lt 6) { $err = 'Слишком короткий: нужно хотя бы 6 символов' }
+                elseif ($pw -cne $st.Win.FindName('Pw2').Password) { $err = 'Пароли не совпадают' }
+            }
+            if (-not $err -and $st.Validate) { $err = & $st.Validate $pw }
+            if ($err) {
+                $e = $st.Win.FindName('PwErr')
+                $e.Text = $err
+                $e.Visibility = 'Visible'
+                $box = $st.Win.FindName('Pw1')
+                $box.SelectAll(); [void]$box.Focus()
+                return
+            }
+            $st.Result = $pw
+            $st.Win.Close()
+        } catch { Write-ErrLog $_ 'окно мастер-пароля' }
+    })
+    $w.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'Escape') { $s.Close() } })
+    $w.Add_MouseLeftButtonDown({ param($s, $e) try { $s.DragMove() } catch { } })
+    $w.Left = -10000; $w.Top = -10000
+    $w.Add_ContentRendered({
+        param($s, $e)
+        try {
+            Move-NearRect $s $script:PwState.Anchor $script:PwState.Edge
+            [void]$s.Activate()
+            [void]$s.FindName('Pw1').Focus()
+        } catch { Write-ErrLog $_ 'окно мастер-пароля' }
+    })
+    Show-AppWindow $w -Dialog
+    $r = $script:PwState.Result
+    $script:PwState = $null
+    return $r
 }

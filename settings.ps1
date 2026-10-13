@@ -63,14 +63,41 @@ $script:SettingsBody = @'
             <TextBox x:Name="EName" Tag="Например: Единорог-сервер"/>
           </StackPanel>
         </Grid>
-        <TextBlock Style="{StaticResource Lbl}" Text="Текст, который копируется"/>
-        <TextBox x:Name="EText" Height="92" AcceptsReturn="True" AcceptsTab="True" TextWrapping="Wrap"
-                 VerticalScrollBarVisibility="Auto" FontFamily="Cascadia Mono, Consolas" FontSize="12.5"
-                 Tag="Текст или шаблон: Заявка {?Номер} от {date}"/>
-        <WrapPanel x:Name="ETokens" Margin="0,8,0,0"/>
-        <TextBlock Style="{StaticResource Lbl}" Text="Так будет скопировано"/>
-        <Border Background="{DynamicResource B.Panel}" BorderBrush="{DynamicResource B.Line}" BorderThickness="1" CornerRadius="6" Padding="10,7">
-          <TextBlock x:Name="EResult" FontFamily="Cascadia Mono, Consolas" FontSize="12.5" TextWrapping="Wrap" MaxHeight="74" TextTrimming="CharacterEllipsis"/>
+        <CheckBox x:Name="CSecret" Style="{StaticResource Toggle}" Margin="0,14,0,0"
+                  Content="Секретная кнопка — текст шифруется мастер-паролем"/>
+        <StackPanel x:Name="EPlainBox">
+          <TextBlock Style="{StaticResource Lbl}" Text="Текст, который копируется"/>
+          <TextBox x:Name="EText" Height="92" AcceptsReturn="True" AcceptsTab="True" TextWrapping="Wrap"
+                   VerticalScrollBarVisibility="Auto" FontFamily="Cascadia Mono, Consolas" FontSize="12.5"
+                   Tag="Текст или шаблон: Заявка {?Номер} от {date}"/>
+          <WrapPanel x:Name="ETokens" Margin="0,8,0,0"/>
+          <TextBlock Style="{StaticResource Lbl}" Text="Так будет скопировано"/>
+          <Border Background="{DynamicResource B.Panel}" BorderBrush="{DynamicResource B.Line}" BorderThickness="1" CornerRadius="6" Padding="10,7">
+            <TextBlock x:Name="EResult" FontFamily="Cascadia Mono, Consolas" FontSize="12.5" TextWrapping="Wrap" MaxHeight="74" TextTrimming="CharacterEllipsis"/>
+          </Border>
+        </StackPanel>
+        <StackPanel x:Name="ESecretBox" Visibility="Collapsed">
+          <TextBlock Style="{StaticResource Lbl}" Text="Секрет, который копируется"/>
+          <DockPanel>
+            <Button x:Name="BReveal" DockPanel.Dock="Right" Style="{StaticResource Btn}" Margin="8,0,0,0" Padding="10,5"
+                    ToolTip="Держите нажатой, чтобы увидеть"/>
+            <Grid>
+              <PasswordBox x:Name="ESecretPw" FontFamily="Cascadia Mono, Consolas"/>
+              <TextBox x:Name="ESecretShow" IsReadOnly="True" Visibility="Collapsed" FontFamily="Cascadia Mono, Consolas"/>
+            </Grid>
+          </DockPanel>
+          <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0"
+                     Text="Хранится только в зашифрованном виде. При клике копируется мимо журнала Win+V и стирается из буфера через 10 с."/>
+        </StackPanel>
+        <Border x:Name="ELockedBox" Visibility="Collapsed" Margin="0,14,0,0" Padding="14,12" CornerRadius="8"
+                Background="{DynamicResource B.Panel}" BorderBrush="{DynamicResource B.Line}" BorderThickness="1">
+          <DockPanel>
+            <Button x:Name="BUnlock" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="Разблокировать" VerticalAlignment="Center"/>
+            <StackPanel VerticalAlignment="Center">
+              <TextBlock Style="{StaticResource H}" FontSize="13" Text="Секреты заблокированы"/>
+              <TextBlock Style="{StaticResource Hint}" Text="Чтобы увидеть или изменить секрет, нужен мастер-пароль."/>
+            </StackPanel>
+          </DockPanel>
         </Border>
         <TextBlock Style="{StaticResource Lbl}" Text="Цвет обводки и точки у края"/>
         <WrapPanel x:Name="EColors"/>
@@ -125,7 +152,13 @@ $script:SettingsBody = @'
           <TextBlock x:Name="VFan" DockPanel.Dock="Right" Width="58" TextAlignment="Right" Foreground="{DynamicResource B.Sub}" VerticalAlignment="Center"/>
           <Slider x:Name="SFan" Minimum="150" Maximum="1500" SmallChange="50" LargeChange="100"/>
         </DockPanel>
-        <TextBlock Style="{StaticResource Lbl}" Text="Сетка кнопок у курсора"/>
+        <TextBlock Style="{StaticResource Lbl}" Text="Мастер-пароль для секретных кнопок"/>
+        <TextBlock x:Name="VVault" Style="{StaticResource Hint}" Margin="0,0,0,8"/>
+        <WrapPanel>
+          <Button x:Name="BVaultLock" Style="{StaticResource Btn}" Content="Заблокировать" Margin="0,0,8,6"/>
+          <Button x:Name="BVaultChange" Style="{StaticResource Btn}" Content="Сменить пароль" Margin="0,0,8,6"/>
+          <Button x:Name="BVaultReset" Style="{StaticResource Danger}" Content="Забыл пароль — сбросить" Margin="0,0,0,6"/>
+        </WrapPanel>        <TextBlock Style="{StaticResource Lbl}" Text="Сетка кнопок у курсора"/>
         <DockPanel>
           <Button x:Name="BHotkey" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Применить" Margin="8,0,0,0"/>
           <TextBox x:Name="SHotkey" Tag="Win+Alt+V; пусто — выключить"/>
@@ -169,6 +202,7 @@ $script:Tokens = @(
 function Copy-ClipItem($It) {
     <# Рабочая копия для окна настроек; _src — ссылка на живую кнопку, чтобы при сохранении не потерять счётчик. #>
     $c = New-ClipItem -Name ([string]$It.name) -Text ([string]$It.text) -Icon ([string]$It.icon) -Color ([string]$It.color) -Counter ([int]$It.counter) -Ring ([string]$It.ring)
+    $c.secret = [bool]$It.secret; $c.enc = [string]$It.enc
     $c['_src'] = $It
     foreach ($ch in @($It.children)) { if ($null -ne $ch) { [void]$c.children.Add((Copy-ClipItem $ch)) } }
     return $c
@@ -204,7 +238,7 @@ function Open-Settings {
         $script:SettingsWin = $w
 
         $names = 'STitle', 'SVersion', 'SClose', 'TabItems', 'TabLook', 'SLogo', 'PageItems', 'PageLook', 'LItems', 'BNew', 'BNew2', 'BChild', 'BDup', 'BUp', 'BDown', 'BNest', 'BDel',
-                 'EScroll', 'Editor', 'EEmpty', 'EEmptyIcon', 'EPreview', 'EName', 'EText', 'ETokens', 'EResult', 'EColors', 'ERings', 'EPicker',
+                 'EScroll', 'Editor', 'EEmpty', 'EEmptyIcon', 'EPreview', 'EName', 'EText', 'ETokens', 'EResult', 'CSecret', 'EPlainBox', 'ESecretBox', 'BReveal', 'ESecretPw', 'ESecretShow', 'ELockedBox', 'BUnlock', 'VVault', 'BVaultLock', 'BVaultChange', 'BVaultReset', 'EColors', 'ERings', 'EPicker',
                  'RTheme', 'RAccent', 'RSize', 'CMagnify', 'REdge', 'SOffset', 'RMode', 'SDelay', 'VDelay', 'SFan', 'VFan',
                  'CAutostart', 'VAutostart', 'SHotkey', 'BHotkey', 'VHotkey', 'BCfg', 'BDir', 'SCancel', 'SSave', 'SStatus'
         $S = @{ Win = $w; Loading = $false; Dirty = $false; CloseArmed = $false; DelArmed = $false; Sel = -1; Ip = $null; Rows = @() }
@@ -284,6 +318,12 @@ function New-MiniCircle {
     $v = New-EmojiVisual ([string]$It.icon) $Emo ([string]$It.name)
     $v.HorizontalAlignment = 'Center'; $v.VerticalAlignment = 'Center'
     [void]$g.Children.Add($v)
+    if ($It.secret) {
+        $lk = New-EmojiVisual (New-EmojiFromKey '1f512') ([Math]::Max(9, $D * 0.42))
+        $lk.HorizontalAlignment = 'Right'; $lk.VerticalAlignment = 'Bottom'
+        $lk.Margin = New-Object Windows.Thickness 0, 0, (-$D * 0.08), (-$D * 0.06)
+        [void]$g.Children.Add($lk)
+    }
     return $g
 }
 
@@ -325,6 +365,7 @@ function Set-ListRow {
     [void]$sp.Children.Add($n)
     $p = New-Object Windows.Controls.TextBlock
     $prev = Get-Preview $It.text
+    if ($It.secret) { if ($It.enc) { $prev = '•••••••• · секрет' } else { $prev = 'секрет не задан' } }
     if (-not $prev) { $prev = 'текст не задан' }
     $p.Text = $prev
     $p.FontSize = 11.5
@@ -377,6 +418,36 @@ function Initialize-SettingsItems {
         try { Select-SettingsItem $S.LItems.SelectedIndex } catch { Write-ErrLog $_ 'выбор кнопки' }
     })
     $S.EName.Add_TextChanged({ try { Update-FromEditor 'name' } catch { Write-ErrLog $_ 'название' } })
+    $S.CSecret.Add_Click({ try { Switch-SecretItem } catch { Show-Err $_ 'секретная кнопка' } })
+    $S.ESecretPw.Add_PasswordChanged({
+        $S = $script:SettingsState
+        if ($S.Loading -or $S.Sel -lt 0) { return }
+        try {
+            $key = Get-UnlockedKey
+            if (-not $key) { return }
+            $r = $S.Rows[$S.Sel]
+            $pw = $S.ESecretPw.Password
+            if ($pw) { $r.Item.enc = Protect-Secret $pw $key } else { $r.Item.enc = '' }
+            Set-ListRow $S.LItems.Items[$S.Sel] $r.Item $r.Level
+            $S.ScrubBak = $true
+            Set-Dirty
+        } catch { Write-ErrLog $_ 'секрет' }
+    })
+    $S.BReveal.Content = New-EmojiVisual (New-EmojiFromKey '1f441-fe0f') 16
+    $S.BReveal.Add_PreviewMouseLeftButtonDown({
+        $S = $script:SettingsState
+        $S.ESecretShow.Text = $S.ESecretPw.Password
+        $S.ESecretShow.Visibility = 'Visible'; $S.ESecretPw.Visibility = 'Hidden'
+    })
+    $hide = {
+        $S = $script:SettingsState
+        if (-not $S) { return }
+        $S.ESecretShow.Text = ''
+        $S.ESecretShow.Visibility = 'Collapsed'; $S.ESecretPw.Visibility = 'Visible'
+    }
+    $S.BReveal.Add_PreviewMouseLeftButtonUp($hide)
+    $S.BReveal.Add_MouseLeave($hide)
+    $S.BUnlock.Add_Click({ try { [void](Unlock-Vault (Get-SettingsAnchor)); Update-SecretUi; Update-VaultStatus } catch { Show-Err $_ 'разблокировка' } })
     $S.EText.Add_TextChanged({ try { Update-FromEditor 'text' } catch { Write-ErrLog $_ 'текст' } })
 
     foreach ($t in $script:Tokens) {
@@ -462,6 +533,154 @@ function Initialize-SettingsItems {
         } catch { Show-Err $_ 'удаление кнопки' }
     })
 }
+function Get-SettingsAnchor {
+    $w = $script:SettingsWin
+    return New-Object Windows.Rect ($w.Left + $w.ActualWidth / 2 - 1), ($w.Top + $w.ActualHeight / 2 + 120), 2, 2
+}
+
+function Get-VaultKeyForEdit {
+    <# Ключ для правки секретов: хранилища нет — придумать пароль, есть — разблокировать. #>
+    $k = Get-UnlockedKey
+    if ($k) { return $k }
+    if ($script:Cfg.vault) { return (Unlock-Vault (Get-SettingsAnchor)) }
+    $pw = Show-PasswordDialog 'create' $null (Get-SettingsAnchor) 'bottom'
+    if ($null -eq $pw) { return $null }
+    $nv = New-Vault $pw
+    $script:Cfg.vault = $nv.Vault
+    Set-UnlockedKey $nv.Key
+    Update-VaultStatus
+    return $nv.Key
+}
+
+function Switch-SecretItem {
+    <#
+        Включение: текст шифруется и уходит из открытого вида. Выключение:
+        расшифровывается обратно. Без ключа переключатель возвращается назад.
+    #>
+    $S = $script:SettingsState
+    if ($S.Sel -lt 0) { return }
+    $r = $S.Rows[$S.Sel]
+    $it = $r.Item
+    $want = [bool]$S.CSecret.IsChecked
+    $key = Get-VaultKeyForEdit
+    if (-not $key) { $S.Loading = $true; $S.CSecret.IsChecked = -not $want; $S.Loading = $false; return }
+    if ($want -and -not $it.secret) {
+        if ($it.text) { $it.enc = Protect-Secret ([string]$it.text) $key } else { $it.enc = '' }
+        $it.text = ''
+        $it.secret = $true
+        # В config.json.bak после сохранения остался бы открытый текст — перепишем
+        $S.ScrubBak = $true
+    } elseif (-not $want -and $it.secret) {
+        $plain = ''
+        if ($it.enc) { $plain = Unprotect-Secret $it.enc $key }
+        $it.text = $plain
+        $it.enc = ''
+        $it.secret = $false
+    }
+    Set-ListRow $S.LItems.Items[$S.Sel] $it $r.Level
+    Select-SettingsItem $S.Sel
+    Set-Dirty
+}
+
+function Update-SecretUi {
+    $S = $script:SettingsState
+    if ($S.Sel -lt 0 -or $S.Sel -ge $S.Rows.Count) { return }
+    $it = $S.Rows[$S.Sel].Item
+    $S.Loading = $true
+    try {
+        $S.CSecret.IsChecked = [bool]$it.secret
+        if (-not $it.secret) {
+            $S.EPlainBox.Visibility = 'Visible'; $S.ESecretBox.Visibility = 'Collapsed'; $S.ELockedBox.Visibility = 'Collapsed'
+            $S.ESecretPw.Password = ''
+            return
+        }
+        $S.EPlainBox.Visibility = 'Collapsed'
+        $key = Get-UnlockedKey
+        if (-not $key -and $it.enc) {
+            $S.ESecretBox.Visibility = 'Collapsed'; $S.ELockedBox.Visibility = 'Visible'
+            $S.ESecretPw.Password = ''
+            return
+        }
+        $S.ESecretBox.Visibility = 'Visible'; $S.ELockedBox.Visibility = 'Collapsed'
+        $plain = ''
+        if ($it.enc -and $key) { try { $plain = Unprotect-Secret $it.enc $key } catch { $plain = '' } }
+        $S.ESecretPw.Password = $plain
+    } finally { $S.Loading = $false }
+}
+
+function Update-VaultStatus {
+    $S = $script:SettingsState
+    if (-not $S) { return }
+    if (-not $script:Cfg.vault) {
+        $S.VVault.Text = 'Не задан. Появится, когда вы сделаете первую кнопку секретной.'
+        $S.BVaultLock.IsEnabled = $false; $S.BVaultChange.IsEnabled = $false; $S.BVaultReset.IsEnabled = $false
+    } elseif (Get-UnlockedKey) {
+        $S.VVault.Text = 'Задан. Секреты открыты до выхода из программы или до «Заблокировать».'
+        $S.BVaultLock.IsEnabled = $true; $S.BVaultChange.IsEnabled = $true; $S.BVaultReset.IsEnabled = $true
+    } else {
+        $S.VVault.Text = 'Задан. Секреты заблокированы — пароль спросится при первом клике по секрету.'
+        $S.BVaultLock.IsEnabled = $false; $S.BVaultChange.IsEnabled = $true; $S.BVaultReset.IsEnabled = $true
+    }
+}
+
+function Get-AllSecretItems {
+    <# Все секретные кнопки — и в живом конфиге, и в рабочей копии окна настроек. #>
+    $all = New-Object System.Collections.ArrayList
+    $lists = @($script:Cfg.items)
+    if ($script:SettingsState) { $lists += @($script:SettingsState.Items) }
+    foreach ($it in $lists) {
+        if ($it.secret) { [void]$all.Add($it) }
+        foreach ($ch in $it.children) { if ($ch.secret) { [void]$all.Add($ch) } }
+    }
+    return , $all
+}
+
+function Set-VaultPassword {
+    <# Смена пароля: каждый секрет расшифровывается старым ключом и шифруется новым. #>
+    $old = Get-VaultKeyForEdit
+    if (-not $old) { return }
+    $pw = Show-PasswordDialog 'create' $null (Get-SettingsAnchor) 'bottom' 'Новый мастер-пароль'
+    if ($null -eq $pw) { return }
+    $nv = New-Vault $pw
+    foreach ($it in (Get-AllSecretItems)) {
+        if ($it.enc) { $it.enc = Protect-Secret (Unprotect-Secret $it.enc $old) $nv.Key }
+    }
+    $script:Cfg.vault = $nv.Vault
+    Set-UnlockedKey $nv.Key
+    # Сразу на диск и второй раз — чтобы и в .bak не остался шифр старым паролем
+    Save-Config; Save-Config
+    Update-VaultStatus
+    Update-SecretUi
+    $S = $script:SettingsState
+    $S.SStatus.Text = 'Мастер-пароль сменён, секреты перешифрованы и сохранены'
+    $S.SStatus.SetResourceReference([Windows.Controls.TextBlock]::ForegroundProperty, 'B.Ok')
+}
+
+function Reset-Vault {
+    <#
+        Забытый пароль не восстановить, поэтому сброс: хранилище удаляется,
+        у секретных кнопок пропадают значения — их задают заново.
+    #>
+    $S = $script:SettingsState
+    if (-not $S.VaultResetArmed) {
+        $S.VaultResetArmed = $true
+        $S.BVaultReset.Content = 'Стереть все секреты?'
+        return
+    }
+    $S.VaultResetArmed = $false
+    $S.BVaultReset.Content = 'Забыл пароль — сбросить'
+    foreach ($it in (Get-AllSecretItems)) { $it.enc = '' }
+    $script:Cfg.vault = $null
+    Lock-Vault
+    Save-Config; Save-Config
+    Update-SettingsList
+    if ($S.Sel -ge 0) { Select-SettingsItem $S.Sel }
+    Update-VaultStatus
+    Rebuild-Dock
+    $S.SStatus.Text = 'Мастер-пароль сброшен. Значения секретных кнопок нужно задать заново'
+    $S.SStatus.SetResourceReference([Windows.Controls.TextBlock]::ForegroundProperty, 'B.Warn')
+}
+
 function Reset-DelArm {
     $S = $script:SettingsState
     if ($S.DelArmed) { $S.DelArmed = $false; $S.BDel.Content = 'Удалить' }
@@ -583,6 +802,7 @@ function Select-SettingsItem {
         if (-not $ring) { $ring = 'solid' }
         foreach ($rb in $S.ERings.Children) { $rb.IsChecked = ([string]$rb.Tag -eq $ring) }
     } finally { $S.Loading = $false }
+    Update-SecretUi
     Update-EditorPreview
 }
 function Update-FromEditor {
@@ -610,6 +830,7 @@ function Update-EditorPreview {
     $it = $S.Rows[$S.Sel].Item
     $S.EPreview.Children.Clear()
     [void]$S.EPreview.Children.Add((New-MiniCircle $it 46 28))
+    if ($it.secret) { return }
     $text = [string]$it.text
     if (-not $text) { $S.EResult.Text = '—'; return }
     $ans = @{}
@@ -733,6 +954,10 @@ function Initialize-SettingsLook {
         Set-Dirty
     })
     $S.BHotkey.Add_Click({ try { Set-SettingsHotkey } catch { Write-ErrLog $_ 'хоткей' } })
+    $S.BVaultLock.Add_Click({ try { Lock-Vault; Update-VaultStatus; Update-SecretUi } catch { Show-Err $_ 'блокировка' } })
+    $S.BVaultChange.Add_Click({ try { Set-VaultPassword } catch { Show-Err $_ 'смена мастер-пароля' } })
+    $S.BVaultReset.Add_Click({ try { Reset-Vault } catch { Show-Err $_ 'сброс мастер-пароля' } })
+    Update-VaultStatus
     $S.SHotkey.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'Return') { Set-SettingsHotkey } })
     $S.BCfg.Add_Click({ Start-Process notepad.exe -ArgumentList ('"{0}"' -f $script:CfgPath) })
     $S.BDir.Add_Click({ Start-Process explorer.exe -ArgumentList ('"{0}"' -f $script:Root) })
@@ -762,6 +987,7 @@ function ConvertFrom-WorkItem {
     $cnt = [int]$W.counter
     if ($W.Contains('_src') -and $W['_src']) { $cnt = [Math]::Max($cnt, [int]$W['_src'].counter) }
     $n = New-ClipItem -Name ([string]$W.name) -Text ([string]$W.text) -Icon ([string]$W.icon) -Color ([string]$W.color) -Counter $cnt -Ring ([string]$W.ring)
+    $n.secret = [bool]$W.secret; $n.enc = [string]$W.enc
     foreach ($ch in $W.children) { [void]$n.children.Add((ConvertFrom-WorkItem $ch)) }
     $W['_src'] = $n
     $W.counter = $cnt
@@ -774,6 +1000,11 @@ function Save-Settings {
     foreach ($w in $S.Items) { [void]$list.Add((ConvertFrom-WorkItem $w)) }
     $script:Cfg.items = $list
     Save-Config
+    if ($S.ScrubBak) {
+        # Прежняя версия в config.json.bak могла хранить этот текст открытым
+        Save-Config
+        $S.ScrubBak = $false
+    }
     $S.Snapshot = ConvertTo-ConfigJson $script:Cfg
     $S.Dirty = $false
     Reset-CloseArm
@@ -798,7 +1029,9 @@ function Close-Settings {
         # Кнопки правились в рабочей копии и в живой конфиг не попадали —
         # они остаются как есть, со счётчиками; откатывается только вид
         $snap = ConvertTo-ClipConfig ($S.Snapshot | ConvertFrom-Json)
-        foreach ($k in @($snap.Keys)) { if ($k -ne 'items' -and $k -ne 'recentEmoji') { $script:Cfg[$k] = $snap[$k] } }
+        # Хранилище секретов тоже не откатывается: смена и сброс мастер-пароля
+        # сразу записаны на диск вместе с перешифрованными кнопками
+        foreach ($k in @($snap.Keys)) { if ($k -notin 'items', 'recentEmoji', 'vault') { $script:Cfg[$k] = $snap[$k] } }
         Update-Palette $script:Cfg
         Update-AllWindowPalettes
         Set-WindowPalette $script:Dock
